@@ -22,6 +22,17 @@ SHARP_ROW = ("C#", "D#", "F#", "G#", "A#")
 TITLE = "🎵 吟游诗人"
 
 
+def _safe_id(text: str) -> str:
+    """Make a button id the Hub will accept.
+
+    The Hub only allows ``[A-Za-z0-9_.:-]`` in ids, so "root_C#" was rejected
+    outright with "按钮 ID 含非法字符". Sharps are spelled out rather than
+    dropped, because dropping them would make C and C# collide -- two buttons
+    with one id, and the wrong chord would play.
+    """
+    return text.replace("#", "s").replace("b", "f")
+
+
 def _button(button_id: str, label: str, action: str,
             params: dict[str, Any] | None = None, style: int = 0) -> dict:
     return {
@@ -41,13 +52,14 @@ def build_root_card(waveform: str = "square") -> dict[str, Any]:
     the 5x5 limit, and shaped like the piano keys they represent.
     """
     rows = [
-        [_button(f"root_{name}", name, "chord.pick_root", {"root": name})
+        [_button(f"root_{_safe_id(name)}", name, "chord.pick_root",
+                 {"root": name})
          for name in SHARP_ROW],
-        [_button(f"root_{name}", name, "chord.pick_root", {"root": name},
-                 style=1)
+        [_button(f"root_{_safe_id(name)}", name, "chord.pick_root",
+                 {"root": name}, style=1)
          for name in NATURAL_ROW[:4]],
-        [_button(f"root_{name}", name, "chord.pick_root", {"root": name},
-                 style=1)
+        [_button(f"root_{_safe_id(name)}", name, "chord.pick_root",
+                 {"root": name}, style=1)
          for name in NATURAL_ROW[4:]],
         [
             _button("wave", f"🔊 音色：{WAVEFORMS[waveform]}",
@@ -76,7 +88,7 @@ def build_quality_card(root: str, waveform: str = "square") -> dict[str, Any]:
     for quality in QUALITIES:
         suffix = "" if quality.key == "maj" else quality.key
         row.append(_button(
-            f"q_{quality.key}", f"{root}{suffix}", "chord.play",
+            f"q_{_safe_id(quality.key)}", f"{root}{suffix}", "chord.play",
             {"root": root, "quality": quality.key}, style=1,
         ))
         if len(row) == 4:
@@ -111,7 +123,7 @@ def build_result_card(chord: Chord, waveform: str,
     intervals = " ".join(str(step) for step in chord.quality.intervals)
 
     rows = [
-        [_button(f"arp_{key}", label, "chord.arpeggio",
+        [_button(f"arp_{_safe_id(key)}", label, "chord.arpeggio",
                  {"root": root, "quality": chord.quality.key, "pattern": key})
          for key, (label, _) in list(ARPEGGIOS.items())[1:4]],
         [

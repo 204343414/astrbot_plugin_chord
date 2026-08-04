@@ -200,3 +200,70 @@ print("ok")
         result = subprocess.run([sys.executable, "-B", "-c", code],
                                 capture_output=True, text=True)
         assert result.returncode == 0, result.stderr[-900:]
+
+
+# --- the Hub's own validator ------------------------------------------------
+#
+# Cards were rejected at send time with "按钮 ID 含非法字符": the Hub allows only
+# [A-Za-z0-9_.:-] in a button id, and every sharp root produced "root_C#".
+# Checking the layout locally was not enough -- the contract lives in the Hub.
+
+#: Mirrors qqofficial_hub.ephemeral.CARD_ID_RE.
+HUB_ID_PATTERN = r"[A-Za-z0-9_.:-]{1,80}"
+
+
+def _all_cards():
+    """Every card this plugin can send, including the ones with sharps."""
+    yield "root", cards.build_root_card()
+    for waveform in synth.WAVEFORMS:
+        yield f"root:{waveform}", cards.build_root_card(waveform)
+    for root in th.SHARP_NAMES:
+        yield f"quality:{root}", cards.build_quality_card(root)
+    for text in ("C", "F#m7", "Bb7", "Cmaj7"):
+        yield f"result:{text}", cards.build_result_card(
+            th.parse_chord(text), "square", "silk")
+    yield "help", cards.build_help_card()
+
+
+def test_every_button_id_matches_the_hub_pattern():
+    import re
+
+    pattern = re.compile(HUB_ID_PATTERN)
+    for name, card in _all_cards():
+        for row in card["rows"]:
+            for button in row:
+                assert pattern.fullmatch(button["id"]), f"{name}: {button['id']}"
+                assert pattern.fullmatch(button["action_id"]), name
+
+
+def test_sharp_roots_keep_distinct_ids():
+    """Stripping '#' instead of encoding it would collide C with C#."""
+    ids = {b["label"]: b["id"]
+           for row in cards.build_root_card()["rows"] for b in row}
+    assert ids["C"] != ids["C#"]
+    assert len(set(ids.values())) == len(ids)
+
+
+def test_the_real_note_name_survives_in_the_params():
+    """The id is sanitised; the payload must still say C#, not Cs."""
+    for row in cards.build_root_card()["rows"]:
+        for button in row:
+            if button["action_id"] == "chord.pick_root":
+                assert button["params"]["root"] == button["label"]
+
+
+def test_cards_pass_the_hubs_own_validator():
+    """Uses the Hub's validator, not a copy of its rules.
+
+    A local re-implementation would have happily accepted "root_C#" too --
+    which is exactly how this reached a live group.
+    """
+    ephemeral = pytest.importorskip(
+        "qqofficial_hub.ephemeral",
+        reason="需要 PYTHONPATH 指向 astrbot_plugin_qqofficial_hub",
+    )
+    for name, card in _all_cards():
+        try:
+            ephemeral.validate_card(card)
+        except Exception as exc:  # noqa: BLE001 - report which card failed
+            pytest.fail(f"{name} 未通过 Hub 校验: {type(exc).__name__}: {exc}")

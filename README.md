@@ -95,6 +95,9 @@ ffmpeg 只有做**视频**时才躲不掉——H.264 / AAC 是专利编码器，
 
 ```bash
 python -m pytest tests -q
+
+# 想连 Hub 的真实卡片校验器一起跑（多一条测例）：
+PYTHONPATH=/path/to/astrbot_plugin_qqofficial_hub python -m pytest tests -q
 ```
 
 音频的 bug 在代码 diff 里看不出来、在音箱里一听就穿帮，所以测例直接**测信号本身**：
