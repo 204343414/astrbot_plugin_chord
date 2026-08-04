@@ -1,0 +1,4 @@
+numpy
+# 可选：装了就用 QQ 原生 silk 编码，体积约为 WAV 的 1/5；
+# 没装自动降级为 WAV（官方文档 file_type=3 同时接受 silk/wav/mp3/flac）。
+graiax-silkcoder

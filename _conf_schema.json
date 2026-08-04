@@ -1,0 +1,12 @@
+{
+  "chord_seconds": {
+    "description": "单个和弦的发声时长（秒），默认 1.6",
+    "type": "float",
+    "default": 1.6
+  },
+  "arpeggio_step_seconds": {
+    "description": "分解和弦每个音的时长（秒），默认 0.3",
+    "type": "float",
+    "default": 0.3
+  }
+}
