@@ -3,8 +3,10 @@
 QQ refuses a keyboard larger than 5x5, and it refuses it at send time with an
 opaque error -- so the limit is checked here rather than discovered in a group.
 """
+import re
 import sys
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 
@@ -267,3 +269,78 @@ def test_cards_pass_the_hubs_own_validator():
             ephemeral.validate_card(card)
         except Exception as exc:  # noqa: BLE001 - report which card failed
             pytest.fail(f"{name} 未通过 Hub 校验: {type(exc).__name__}: {exc}")
+
+
+# --- blue text (qqbot-cmd-input) --------------------------------------------
+#
+# Verified in a live group: consecutive taps APPEND to the input box and QQ
+# adds the @bot mention only once. That is what lets a melody be assembled by
+# tapping, and why note tokens carry no leading slash.
+
+def test_blue_text_urlencodes_and_omits_redundant_attributes():
+    """Spelling out show/reference costs ~28 chars per tag; 63 notes would
+    then blow the 4000-character markdown budget."""
+    tag = cards.blue("4C ")
+    assert tag == '<qqbot-cmd-input text="4C%20" />'
+    assert "show=" not in tag
+
+
+def test_blue_text_keeps_show_when_it_differs():
+    """A separate label is kept; '/' need not be escaped (both forms decode
+    identically and both pass the Hub's validator)."""
+    tag = cards.blue("/编曲 ", "▶ 开始编曲")
+    assert "show=" in tag
+    text = unquote(re.search(r'text="([^"]+)"', tag).group(1))
+    assert text == "/编曲 "
+
+
+def test_only_the_opening_command_carries_a_slash():
+    """Note tokens must not, or the input box fills with /编曲 /编曲 /编曲."""
+    card = cards.build_note_card()
+    tags = re.findall(r'text="([^"]+)"', card["markdown"])
+    decoded = [unquote(t) for t in tags]
+    slashed = [t for t in decoded if t.startswith("/")]
+    assert slashed == ["/编曲 "], f"只应有一个命令蓝字，实际 {slashed}"
+
+
+def test_the_note_page_offers_every_playable_octave():
+    card = cards.build_note_card()
+    decoded = [unquote(t) for t in re.findall(r'text="([^"]+)"', card["markdown"])]
+    for octave in range(1, 10):
+        assert f"{octave}C " in decoded, f"缺少第 {octave} 八度"
+
+
+def test_the_note_page_stops_at_g9_because_midi_does():
+    card = cards.build_note_card()
+    decoded = [unquote(t).strip() for t in
+               re.findall(r'text="([^"]+)"', card["markdown"])]
+    assert "9G" in decoded
+    for impossible in ("9A", "9B"):
+        assert impossible not in decoded, f"{impossible} 超出 MIDI 127"
+
+
+def test_every_blue_token_actually_parses():
+    """A tag that inserts something the parser rejects is a trap."""
+    from chord import sequence as sq
+
+    for builder in (cards.build_note_card, cards.build_drum_card):
+        card = builder()
+        for encoded in re.findall(r'text="([^"]+)"', card["markdown"]):
+            token = unquote(encoded).strip()
+            if token.startswith("/"):
+                continue
+            if token in ("|", "-"):
+                continue
+            sq.parse_token(token)      # raises if the grammar disagrees
+
+
+def test_the_pages_stay_inside_the_markdown_budget():
+    for name, builder in (("notes", cards.build_note_card),
+                          ("drums", cards.build_drum_card),
+                          ("home", cards.build_home_card)):
+        assert len(builder()["markdown"]) <= 4000, name
+
+
+def test_bpm_choices_are_sorted_and_musical():
+    assert list(cards.BPM_CHOICES) == sorted(cards.BPM_CHOICES)
+    assert 120 in cards.BPM_CHOICES

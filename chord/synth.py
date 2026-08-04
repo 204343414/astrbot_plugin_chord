@@ -198,3 +198,77 @@ def to_voice(signal: np.ndarray,
         return silkcoder.encode(audio, audio_format="wav"), "silk"
     except Exception:
         return audio, "wav"
+
+
+# --- percussion -------------------------------------------------------------
+#
+# Drums are the fourth classic chiptune voice: filtered noise plus a pitch
+# sweep. Kept here rather than in the note path because a drum has no pitch,
+# so it cannot be expressed as a MIDI number.
+
+def render_drum(voice: int, duration: float,
+                sample_rate: int = SAMPLE_RATE) -> "np.ndarray":
+    """Render one drum hit. ``voice`` is a negative id from ``sequence``."""
+    frames = int(duration * sample_rate)
+    if frames <= 0:
+        return np.zeros(0)
+
+    if voice == -1:      # kick: a low sine swept downward
+        t = np.arange(frames) / sample_rate
+        sweep = np.array([110.0 * (2.718 ** (-28.0 * float(x))) + 45.0 for x in t])
+        phase = np.array([0.0] * frames)
+        running = 0.0
+        for index in range(frames):
+            running += 2 * np.pi * float(sweep[index]) / sample_rate
+            phase[index] = running
+        body = np.sin(phase)
+        decay = np.array([2.718 ** (-9.0 * float(x)) for x in t])
+        return body * decay
+
+    if voice == -2:      # snare: noise plus a short tonal body
+        t = np.arange(frames) / sample_rate
+        tone = oscillator("triangle", 190.0, frames, sample_rate)
+        mixed = noise(frames, seed=2) * 0.8 + tone * 0.35
+        decay = np.array([2.718 ** (-16.0 * float(x)) for x in t])
+        return mixed * decay
+
+    # hi-hats: bright noise, closed decays fast and open rings on
+    t = np.arange(frames) / sample_rate
+    rate = 45.0 if voice == -3 else 7.0
+    bright = noise(frames, seed=3)
+    # Crude high-pass: differencing removes the low end and leaves the hiss.
+    hissed = ndarray_diff(bright)
+    decay = np.array([2.718 ** (-rate * float(x)) for x in t])
+    return hissed * decay * 0.7
+
+
+def ndarray_diff(signal):
+    """First difference, used as a cheap high-pass for hi-hats."""
+    if len(signal) < 2:
+        return signal
+    shifted = [0.0, *list(signal)[:-1]]
+    return signal - np.array(shifted)
+
+
+def render_score_steps(steps, waveform: str = DEFAULT_WAVEFORM,
+                       gap: float = 0.01,
+                       sample_rate: int = SAMPLE_RATE) -> "np.ndarray":
+    """Render ``[(notes, seconds), ...]`` where negative notes are drums."""
+    chunks = []
+    for notes, duration in steps:
+        span = max(0.0, duration - gap)
+        if not notes:
+            chunks.append(np.zeros(int(duration * sample_rate)))
+            continue
+        if all(note < 0 for note in notes):
+            hit = render_drum(notes[0], span, sample_rate)
+            chunks.append(hit)
+        else:
+            pitched = [note for note in notes if note >= 0]
+            chunks.append(render_notes(pitched, span, waveform,
+                                       sample_rate=sample_rate))
+        if gap > 0:
+            chunks.append(np.zeros(int(gap * sample_rate)))
+    if not chunks:
+        return np.zeros(0)
+    return np.concatenate(chunks)

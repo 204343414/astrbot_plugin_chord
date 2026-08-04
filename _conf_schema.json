@@ -8,5 +8,10 @@
     "description": "分解和弦每个音的时长（秒），默认 0.3",
     "type": "float",
     "default": 0.3
+  },
+  "max_render_seconds": {
+    "description": "单次 /编曲 允许合成的最长秒数，默认 45。超过会提示拆段。",
+    "type": "float",
+    "default": 45
   }
 }

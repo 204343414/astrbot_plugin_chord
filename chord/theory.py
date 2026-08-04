@@ -18,6 +18,7 @@ would be inaudible in review but obvious in a test.
 """
 from __future__ import annotations
 
+import re as _re
 from dataclasses import dataclass
 
 #: Semitone names, sharp spelling. Index == pitch class.
@@ -137,11 +138,26 @@ def pitch_class(name: str) -> int:
     return value % 12
 
 
+#: Octave-first spelling: 4C, 7G, 4C#, 4Bb.
+#:
+#: This exists because letter-first collides with chord names: "G7" is both
+#: "G in octave 7" and "G dominant seventh", and no rule can settle that
+#: without silently guessing wrong for someone. A chord quality can never
+#: precede its root, so putting the octave in front removes the ambiguity by
+#: construction rather than by precedence.
+_OCTAVE_FIRST_RE = _re.compile(r"^([0-9])([A-Ga-g])([#b]?)$")
+
+
 def note_to_midi(text: str, default_octave: int = OCTAVE) -> int:
-    """'C4' -> 60, 'C' -> 60, 'A#3' -> 58."""
+    """'C4' -> 60, '4C' -> 60, 'C' -> 60, 'A#3' -> 58."""
     raw = str(text or "").strip().replace("♯", "#").replace("♭", "b")
     if not raw:
         raise ParseError("音名为空")
+
+    prefixed = _OCTAVE_FIRST_RE.match(raw)
+    if prefixed:
+        octave_text, letter, accidental = prefixed.groups()
+        return _midi_from(letter + accidental, int(octave_text))
 
     digits = ""
     while raw and (raw[-1].isdigit() or (raw[-1] == "-" and digits)):
@@ -151,12 +167,15 @@ def note_to_midi(text: str, default_octave: int = OCTAVE) -> int:
     if not raw and digits:
         raw, digits = digits[0], digits[1:]
 
-    octave = int(digits) if digits else default_octave
+    return _midi_from(raw, int(digits) if digits else default_octave)
+
+
+def _midi_from(name: str, octave: int) -> int:
     if not -1 <= octave <= 9:
         raise ParseError(f"八度超出范围：{octave}（应在 -1~9）")
-    midi = (octave + 1) * 12 + pitch_class(raw)
+    midi = (octave + 1) * 12 + pitch_class(name)
     if not 0 <= midi <= 127:
-        raise ParseError(f"音高超出 MIDI 范围：{text}")
+        raise ParseError(f"音高超出范围：{name}{octave}")
     return midi
 
 

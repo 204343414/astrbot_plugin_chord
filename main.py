@@ -26,7 +26,7 @@ from astrbot.api.star import Context, Star, register
 # ``data.plugins.<dir>.main`` (star_manager: path = "data.plugins." +
 # root_dir_name + "." + module_str), so "chord" is never on sys.path and an
 # absolute import fails with ModuleNotFoundError at load time.
-from .chord import cards, synth
+from .chord import cards, sequence as sq, synth
 from .chord import theory as th
 
 PLUGIN_NAME = "astrbot_plugin_chord"
@@ -51,6 +51,9 @@ class ChordPlugin(Star):
         self.config = config or {}
         self.duration = max(float(self.config.get("chord_seconds", 1.6)), 0.3)
         self.arp_step = max(float(self.config.get("arpeggio_step_seconds", 0.3)), 0.1)
+        self.max_seconds = max(float(self.config.get("max_render_seconds", 45)), 5)
+        #: origin -> bpm.
+        self._bpm: dict[str, int] = {}
         #: origin -> waveform. In memory: a preference, not a document.
         self._waveform: dict[str, str] = {}
         self._hub = None
@@ -124,8 +127,15 @@ class ChordPlugin(Star):
         ActionSpec = self._hub_module(hub, "action_registry").ActionSpec
 
         specs = [
-            ("chord.open", "🎵 吟游诗人", "打开和弦面板，点按钮听和弦。",
+            ("chord.open", "🎵 吟游诗人", "打开主面板：单音 / 和弦 / 鼓点。",
              self._act_open),
+            ("chord.notes", "吟游诗人：单音页", "点蓝字攒旋律。", self._act_notes),
+            ("chord.chords", "吟游诗人：和弦页", "选根音与和弦类型。", self._act_chords),
+            ("chord.drums", "吟游诗人：鼓点页", "鼓机（开发中）。", self._act_drums),
+            ("chord.note_hint", "吟游诗人：记号说明", "升降号/时值的用法提示。",
+             self._act_note_hint),
+            ("chord.cycle_bpm", "吟游诗人：切换 BPM", "在常用速度间循环。",
+             self._act_cycle_bpm),
             ("chord.pick_root", "吟游诗人：选根音", "由面板触发。", self._act_pick_root),
             ("chord.play", "吟游诗人：播放和弦", "由面板触发，发送语音。",
              self._act_play),
@@ -152,6 +162,9 @@ class ChordPlugin(Star):
 
     def _wave(self, origin: str) -> str:
         return self._waveform.get(origin, synth.DEFAULT_WAVEFORM)
+
+    def _tempo(self, origin: str) -> int:
+        return self._bpm.get(origin, 120)
 
     async def _send_card(self, context, card: dict[str, Any]) -> None:
         hub = self._get_hub()
@@ -187,11 +200,44 @@ class ChordPlugin(Star):
     # --- actions ------------------------------------------------------------
 
     async def _act_open(self, context, params) -> int:
+        return await self._show(context, cards.build_home_card(
+            self._wave(context.origin), self._tempo(context.origin)))
+
+    async def _act_notes(self, context, params) -> int:
+        return await self._show(context, cards.build_note_card(
+            self._wave(context.origin), self._tempo(context.origin)))
+
+    async def _act_chords(self, context, params) -> int:
+        return await self._show(context,
+                                cards.build_root_card(self._wave(context.origin)))
+
+    async def _act_drums(self, context, params) -> int:
+        return await self._show(context, cards.build_drum_card(
+            self._tempo(context.origin)))
+
+    async def _act_note_hint(self, context, params) -> int:
+        """Explain a notation mark. Answered as a toast, costing no message.
+
+        These buttons describe how to *write* something the player then taps
+        in blue text; sending a card for each would burn the passive-reply
+        budget to say one line.
+        """
+        return 4
+
+    async def _act_cycle_bpm(self, context, params) -> int:
+        tempos = cards.BPM_CHOICES
+        current = self._tempo(context.origin)
+        nxt = tempos[(tempos.index(current) + 1) % len(tempos)] \
+            if current in tempos else tempos[0]
+        self._bpm[context.origin] = nxt
+        return await self._show(context, cards.build_home_card(
+            self._wave(context.origin), nxt))
+
+    async def _show(self, context, card) -> int:
         try:
-            await self._send_card(
-                context, cards.build_root_card(self._wave(context.origin)))
+            await self._send_card(context, card)
         except Exception:
-            logger.exception("[Chord] Failed to open the panel")
+            logger.exception("[Chord] Failed to send a card")
             return 1
         return 0
 
@@ -252,12 +298,8 @@ class ChordPlugin(Star):
         current = self._wave(context.origin)
         nxt = names[(names.index(current) + 1) % len(names)]
         self._waveform[context.origin] = nxt
-        try:
-            await self._send_card(context, cards.build_root_card(nxt))
-        except Exception:
-            logger.exception("[Chord] Failed to switch waveform")
-            return 1
-        return 0
+        return await self._show(context, cards.build_home_card(
+            nxt, self._tempo(context.origin)))
 
     async def _act_help(self, context, params) -> int:
         try:
@@ -296,6 +338,79 @@ class ChordPlugin(Star):
         except Exception as exc:
             logger.exception("[Chord] Failed to send the panel")
             yield event.plain_result(f"发牌失败：{type(exc).__name__}: {exc}")
+
+    @filter.platform_adapter_type(
+        filter.PlatformAdapterType.QQOFFICIAL
+        | filter.PlatformAdapterType.QQOFFICIAL_WEBHOOK
+    )
+    @filter.command("编曲", alias={"compose", "seq"})
+    async def compose(self, event: AstrMessageEvent, *, score: str = ""):
+        """/编曲 4C 4E 4G | K S K S —— 演奏一整段。
+
+        This is what the blue text assembles: taps append tokens to the input
+        box and the player sends one message, so a whole phrase costs a single
+        passive reply instead of one per note.
+        """
+        event.stop_event()
+        origin = str(getattr(event, "unified_msg_origin", "") or "")
+        if "GroupMessage" not in origin:
+            yield event.plain_result("吟游诗人只能在 QQ 官方群里用。")
+            return
+
+        raw = self._score_text(event, score)
+        if not raw:
+            yield event.plain_result(
+                "用法：`/编曲 4C 4E 4G`，或在面板上点蓝字攒一句。\n"
+                "八度在前（`4C` 中央C），时值写 `/8` `/16` `/3`，`-` 休止，`|` 小节线。")
+            return
+        if self._get_hub() is None:
+            yield event.plain_result("需要先安装并启用 QQ Official Hub 插件。")
+            return
+
+        bpm = self._tempo(origin)
+        try:
+            parsed = sq.parse_score(raw)
+        except th.ParseError as exc:
+            yield event.plain_result(f"❌ {exc}")
+            return
+
+        seconds = parsed.seconds(bpm)
+        if seconds > self.max_seconds:
+            yield event.plain_result(
+                f"这段有 {seconds:.0f} 秒，超过上限 {self.max_seconds:.0f} 秒。"
+                f"拆成两段，或把 BPM 调快。")
+            return
+
+        try:
+            signal = synth.render_score_steps(
+                sq.to_render_steps(parsed, bpm), self._wave(origin))
+            await self._send_voice(
+                origin, signal,
+                msg_id=str(event.message_obj.message_id or "") or None)
+        except Exception as exc:
+            logger.exception("[Chord] Failed to render a score")
+            yield event.plain_result(f"合成失败：{type(exc).__name__}: {exc}")
+            return
+
+        warnings = sq.check_bars(parsed)
+        if warnings:
+            # Advice, never a refusal: an unfinished bar is normal while
+            # composing, and blocking playback would defeat the point.
+            logger.info("[Chord] bar warnings: %s", "；".join(warnings))
+
+    @staticmethod
+    def _score_text(event: AstrMessageEvent, score: str) -> str:
+        """Recover the full argument, including the spaces the parser eats.
+
+        AstrBot splits a command's arguments on whitespace, but a score *is*
+        whitespace-separated, so reading the raw message is the only way to
+        keep "4C 4E 4G" intact.
+        """
+        raw = str(event.get_message_str() or "").strip()
+        for name in ("/编曲", "编曲", "/compose", "compose", "/seq", "seq"):
+            if raw.startswith(name):
+                return raw[len(name):].strip()
+        return str(score or "").strip()
 
     @filter.platform_adapter_type(
         filter.PlatformAdapterType.QQOFFICIAL
