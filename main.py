@@ -41,7 +41,7 @@ VOICE_FILE_TYPE = 3
     PLUGIN_NAME,
     "204343414",
     "QQ 官方机器人吟游诗人：点按钮听和弦，8-bit 合成，附构成音与分解型。",
-    "0.1.0",
+    "0.4.0",
     "https://github.com/204343414/astrbot_plugin_chord",
 )
 class ChordPlugin(Star):

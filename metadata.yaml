@@ -1,7 +1,7 @@
 name: "astrbot_plugin_chord"
 display_name: "吟游诗人 和弦发声器"
 desc: "QQ官方机器人和弦发声器：点按钮听和弦，8-bit 合成，附构成音与分解型。"
-version: "0.1.0"
+version: "0.4.0"
 author: "204343414"
 astrbot_version: ">=4.26.7"
 repo: "https://github.com/204343414/astrbot_plugin_chord"
