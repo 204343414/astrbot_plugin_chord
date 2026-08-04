@@ -463,3 +463,27 @@ def test_drum_patterns_are_real_playable_bars():
         score = sq.parse_score(text)
         assert label and score.steps, key
         assert sq.check_bars(score) == [], f"{key} 的小节拍数不整"
+
+
+# --- Hub version detection --------------------------------------------------
+
+def test_the_plugin_probes_for_insert_text_support():
+    """Checking that a method exists is not enough for a data-format change.
+
+    The old Hub still has send_ephemeral_card; it just rejects insert_text.
+    So the mismatch only surfaced as "按钮必须指定 action_id 或 next_card"
+    when somebody tapped a card, rather than as a clear message at load time.
+    """
+    source = (ROOT / "main.py").read_text("utf-8")
+    assert "_hub_supports_insert" in source
+    probe = source[source.index("def _hub_supports_insert"):]
+    probe = probe[: probe.index("return True")]
+    assert "validate_card" in probe, "必须真的调用校验器，而不是查方法是否存在"
+    assert "insert_text" in probe
+
+
+def test_a_hub_without_insert_support_is_reported_as_too_old():
+    source = (ROOT / "main.py").read_text("utf-8")
+    guard = source[source.index("if not self._hub_supports_insert"):]
+    guard = guard[: guard.index("self._hub = hub")]
+    assert "版本过旧" in guard and "0.18.0" in guard

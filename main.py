@@ -99,11 +99,37 @@ class ChordPlugin(Star):
                                      "actions") if not hasattr(hub, name)]
         if missing:
             if not quiet:
-                logger.error("[Chord] %s 版本过旧，缺少 %s，请升级到 v0.17.0 以上",
+                logger.error("[Chord] %s 版本过旧，缺少 %s，请升级到 v0.18.0 以上",
                              HUB_NAME, "、".join(missing))
+            return None
+        if not self._hub_supports_insert(hub):
+            if not quiet:
+                logger.error(
+                    "[Chord] %s 版本过旧：不支持 insert_text（type=2 插入按钮），"
+                    "升降号与时值按钮无法工作。请升级到 v0.18.0 以上",
+                    HUB_NAME,
+                )
             return None
         self._hub = hub
         return hub
+
+    def _hub_supports_insert(self, hub: Any) -> bool:
+        """Probe the Hub's validator for insert_text support.
+
+        Checking that a *method* exists is not enough here: the old Hub still
+        has send_ephemeral_card, it just rejects the new field. Feature
+        detection has to exercise the behaviour, or the mismatch only shows up
+        as "按钮必须指定 action_id 或 next_card" when somebody taps a card.
+        """
+        try:
+            ephemeral = self._hub_module(hub, "ephemeral")
+            ephemeral.validate_card({
+                "id": "probe", "markdown": "# probe",
+                "rows": [[{"id": "p", "label": "p", "insert_text": "x"}]],
+            })
+        except Exception:
+            return False
+        return True
 
     @staticmethod
     def _hub_module(hub: Any, name: str):

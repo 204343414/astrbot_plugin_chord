@@ -3,7 +3,9 @@
 QQ 官方机器人的和弦工具：**点两下按钮就能听到和弦**，附构成音、音程与分解型。
 声音是实时合成的 8-bit 波形，**不需要安装 ffmpeg**。
 
-> 依赖 [astrbot_plugin_qqofficial_hub](https://github.com/204343414/astrbot_plugin_qqofficial_hub) **v0.17.0 以上**（需要 `send_media_message`）。
+> 依赖 [astrbot_plugin_qqofficial_hub](https://github.com/204343414/astrbot_plugin_qqofficial_hub) **v0.18.0 以上**
+> （需要 `send_media_message` 发语音、`insert_text` 做 type=2 插入按钮）。
+> 版本不够时插件会在加载阶段就明确报「版本过旧」，不会等到点按钮才失败。
 
 ## 玩法
 
