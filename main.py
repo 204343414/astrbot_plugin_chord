@@ -131,18 +131,22 @@ class ChordPlugin(Star):
              self._act_open),
             ("chord.notes", "吟游诗人：单音页", "点蓝字攒旋律。", self._act_notes),
             ("chord.chords", "吟游诗人：和弦页", "选根音与和弦类型。", self._act_chords),
-            ("chord.drums", "吟游诗人：鼓点页", "鼓机（开发中）。", self._act_drums),
-            ("chord.note_hint", "吟游诗人：记号说明", "升降号/时值的用法提示。",
-             self._act_note_hint),
-            ("chord.cycle_bpm", "吟游诗人：切换 BPM", "在常用速度间循环。",
-             self._act_cycle_bpm),
+            ("chord.drums", "吟游诗人：鼓点页", "打开鼓机面板。", self._act_drums),
+            ("chord.drum_pattern", "吟游诗人：试听鼓点型", "播放一小节现成节奏。",
+             self._act_drum_pattern),
+            ("chord.pick_bpm", "吟游诗人：选择速度", "打开 BPM 选择卡。",
+             self._act_pick_bpm),
+            ("chord.set_bpm", "吟游诗人：设定速度", "由速度卡触发。",
+             self._act_set_bpm),
+            ("chord.pick_waveform", "吟游诗人：选择音色", "打开音色选择卡。",
+             self._act_pick_waveform),
+            ("chord.set_waveform", "吟游诗人：设定音色", "由音色卡触发。",
+             self._act_set_waveform),
             ("chord.pick_root", "吟游诗人：选根音", "由面板触发。", self._act_pick_root),
             ("chord.play", "吟游诗人：播放和弦", "由面板触发，发送语音。",
              self._act_play),
             ("chord.arpeggio", "吟游诗人：分解和弦", "按分解型逐音播放。",
              self._act_arpeggio),
-            ("chord.cycle_waveform", "吟游诗人：切换音色", "方波/锯齿/三角/正弦。",
-             self._act_cycle_waveform),
             ("chord.help", "吟游诗人：用法", "显示记谱规则。", self._act_help),
         ]
         for action_id, title, description, callback in specs:
@@ -215,23 +219,52 @@ class ChordPlugin(Star):
         return await self._show(context, cards.build_drum_card(
             self._tempo(context.origin)))
 
-    async def _act_note_hint(self, context, params) -> int:
-        """Explain a notation mark. Answered as a toast, costing no message.
+    async def _act_drum_pattern(self, context, params) -> int:
+        """Play one bar of a ready-made loop, so a beat can be heard before
+        it is typed out by hand."""
+        entry = sq.DRUM_PATTERNS.get(str(params.get("pattern") or ""))
+        if entry is None:
+            return 1
+        _label, text = entry
+        bpm = self._tempo(context.origin)
+        try:
+            score = sq.parse_score(text)
+            signal = synth.render_score_steps(
+                sq.to_render_steps(score, bpm), self._wave(context.origin))
+            await self._send_voice(context.origin, signal,
+                                   client=context.client,
+                                   interaction=context.interaction)
+        except Exception:
+            logger.exception("[Chord] Failed to play a drum pattern")
+            return 1
+        return 0
 
-        These buttons describe how to *write* something the player then taps
-        in blue text; sending a card for each would burn the passive-reply
-        budget to say one line.
-        """
-        return 4
+    async def _act_pick_bpm(self, context, params) -> int:
+        return await self._show(
+            context, cards.build_bpm_card(self._tempo(context.origin)))
 
-    async def _act_cycle_bpm(self, context, params) -> int:
-        tempos = cards.BPM_CHOICES
-        current = self._tempo(context.origin)
-        nxt = tempos[(tempos.index(current) + 1) % len(tempos)] \
-            if current in tempos else tempos[0]
-        self._bpm[context.origin] = nxt
+    async def _act_set_bpm(self, context, params) -> int:
+        try:
+            value = int(params.get("bpm", 0))
+        except (TypeError, ValueError):
+            return 1
+        if value not in cards.BPM_CHOICES:
+            return 1
+        self._bpm[context.origin] = value
         return await self._show(context, cards.build_home_card(
-            self._wave(context.origin), nxt))
+            self._wave(context.origin), value))
+
+    async def _act_pick_waveform(self, context, params) -> int:
+        return await self._show(
+            context, cards.build_waveform_card(self._wave(context.origin)))
+
+    async def _act_set_waveform(self, context, params) -> int:
+        value = str(params.get("waveform") or "")
+        if value not in synth.WAVEFORMS:
+            return 1
+        self._waveform[context.origin] = value
+        return await self._show(context, cards.build_home_card(
+            value, self._tempo(context.origin)))
 
     async def _show(self, context, card) -> int:
         try:
@@ -292,14 +325,6 @@ class ChordPlugin(Star):
             logger.exception("[Chord] Failed to arpeggiate")
             return 1
         return 0
-
-    async def _act_cycle_waveform(self, context, params) -> int:
-        names = list(synth.WAVEFORMS)
-        current = self._wave(context.origin)
-        nxt = names[(names.index(current) + 1) % len(names)]
-        self._waveform[context.origin] = nxt
-        return await self._show(context, cards.build_home_card(
-            nxt, self._tempo(context.origin)))
 
     async def _act_help(self, context, params) -> int:
         try:

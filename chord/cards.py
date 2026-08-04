@@ -83,35 +83,52 @@ def _button(button_id: str, label: str, action: str,
     }
 
 
+def _insert(button_id: str, label: str, text: str, style: int = 0) -> dict:
+    """A type=2 button: appends ``text`` to the input box, sends nothing.
+
+    Used for marks that get tapped over and over while writing a phrase. As
+    type=1 callbacks they would each cost a round trip *and* a passive reply,
+    so five taps would exhaust the five-message budget mid-melody.
+    """
+    return {
+        "id": button_id,
+        "label": label,
+        "style": style,
+        "insert_text": text,
+        "one_shot": False,
+    }
+
+
 def build_root_card(waveform: str = "square") -> dict[str, Any]:
     """Step one: choose a root note.
 
-    Five accidentals on top, seven naturals below -- 12 buttons, well inside
-    the 5x5 limit, and shaped like the piano keys they represent.
+    Naturals are buttons; the black keys come from the ♯/♭ pair rather than
+    a row of their own, which keeps every row to four so QQ does not shrink
+    the labels until they are unreadable.
     """
     rows = [
-        [_button(f"root_{_safe_id(name)}", name, "chord.pick_root",
-                 {"root": name})
-         for name in SHARP_ROW],
-        [_button(f"root_{_safe_id(name)}", name, "chord.pick_root",
-                 {"root": name}, style=1)
+        [_button(f"root_{name}", name, "chord.pick_root", {"root": name},
+                 style=1)
          for name in NATURAL_ROW[:4]],
-        [_button(f"root_{_safe_id(name)}", name, "chord.pick_root",
-                 {"root": name}, style=1)
+        [_button(f"root_{name}", name, "chord.pick_root", {"root": name},
+                 style=1)
          for name in NATURAL_ROW[4:]],
-        [
-            _button("wave", f"🔊 音色：{WAVEFORMS[waveform]}",
-                    "chord.cycle_waveform", {}),
-            _button("help", "❓ 用法", "chord.help", {}),
-        ],
+        [_button("root_Cs", "C#", "chord.pick_root", {"root": "C#"}),
+         _button("root_Ds", "D#", "chord.pick_root", {"root": "D#"}),
+         _button("root_Fs", "F#", "chord.pick_root", {"root": "F#"}),
+         _button("root_Gs", "G#", "chord.pick_root", {"root": "G#"})],
+        [_button("root_As", "A#", "chord.pick_root", {"root": "A#"}),
+         _button("wave", f"🔊 {WAVEFORMS[waveform]}", "chord.pick_waveform", {}),
+         _button("home", "🏠 主菜单", "chord.open", {}),
+         _button("help", "❓ 用法", "chord.help", {})],
     ]
     return {
         "id": "chord_root",
         "markdown": "\n".join([
-            f"# {TITLE}",
+            f"# {TITLE} · 和弦",
             "选一个**根音**，下一步选和弦类型。",
             "",
-            "也可以直接打字：`/和弦 Cmaj7`、`/和弦 F#m7`、`/单音 C4 E4 G4`",
+            "也可以直接打字：`/和弦 Cmaj7`、`/和弦 F#m7`",
         ]),
         "rows": rows,
         "one_shot": False,
@@ -136,8 +153,8 @@ def build_quality_card(root: str, waveform: str = "square") -> dict[str, Any]:
         rows.append(row)
 
     rows.append([
-        _button("back", "← 换根音", "chord.open", {}),
-        _button("wave", f"🔊 {WAVEFORMS[waveform]}", "chord.cycle_waveform", {}),
+        _button("back", "← 换根音", "chord.chords", {}),
+        _button("wave", f"🔊 {WAVEFORMS[waveform]}", "chord.pick_waveform", {}),
     ])
     return {
         "id": "chord_quality",
@@ -219,9 +236,13 @@ def build_note_card(waveform: str = "square", bpm: int = 120) -> dict[str, Any]:
     make ``G7`` mean both "G in octave 7" and "G dominant seventh"; no
     precedence rule can satisfy both, so the grammar sidesteps it.
 
-    Accidentals and durations are *buttons* rather than blue text: they
-    modify the note just typed, and there are far too many combinations to
-    spell out (63 pitches x 5 durations would need 315 tags).
+    Accidentals are two buttons, not ten. Tapping ♯ then ``4C`` yields
+    ``#4C``, which the parser accepts -- so both the sharp-minded and the
+    flat-minded get their own spelling from one pair of keys, instead of the
+    card carrying a C#/D#/F#/G#/A# row that only serves half of them.
+
+    Rows are kept short on purpose: QQ shrinks labels to fit, and a row of
+    five was clipping the text.
     """
     lines = [
         "# 🎵 吟游诗人 · 单音",
@@ -229,7 +250,7 @@ def build_note_card(waveform: str = "square", bpm: int = 120) -> dict[str, Any]:
         f"{blue(COMPOSE_COMMAND + ' ', '▶ 开始编曲')}　← 先点这个，再点音符，"
         "攒够一句自己按发送",
         "",
-        "*八度在前*：`4C` 是中央 C，`7G` 是高音 G。",
+        "*八度在前*：`4C` 是中央 C。想要黑键先点 **♯** 或 **♭**，再点音名。",
         "",
     ]
     for octave in range(LOWEST_OCTAVE, HIGHEST_OCTAVE + 1):
@@ -239,19 +260,19 @@ def build_note_card(waveform: str = "square", bpm: int = 120) -> dict[str, Any]:
         lines.append(f"**{octave}** {row}")
 
     rows = [
-        [_button(f"sharp_{_safe_id(name)}", name, "chord.note_hint",
-                 {"kind": "sharp", "value": name})
-         for name in SHARP_ROW],
-        [_button("dur_2", "𝅗𝅥 二分", "chord.note_hint", {"kind": "dur", "value": "/2"}),
-         _button("dur_4", "♩ 四分", "chord.note_hint", {"kind": "dur", "value": "/4"}),
-         _button("dur_8", "♪ 八分", "chord.note_hint", {"kind": "dur", "value": "/8"}),
-         _button("dur_16", "𝅘𝅥𝅯 十六", "chord.note_hint", {"kind": "dur", "value": "/16"}),
-         _button("dur_3", "⑶ 三连", "chord.note_hint", {"kind": "dur", "value": "/3"})],
-        [_button("dur_dot", "· 附点", "chord.note_hint", {"kind": "dur", "value": "."}),
-         _button("rest", "𝄽 休止", "chord.note_hint", {"kind": "rest", "value": "-"}),
-         _button("bar", "▌小节线", "chord.note_hint", {"kind": "bar", "value": "|"}),
-         _button("bpm", f"⏱ BPM {bpm}", "chord.cycle_bpm", {}),
-         _button("wave", f"🔊 {WAVEFORMS[waveform]}", "chord.cycle_waveform", {})],
+        # Marks that get tapped constantly: type=2, so they cost no round trip
+        # and no passive reply.
+        [_insert("acc_sharp", "♯ 升", "#", style=1),
+         _insert("acc_flat", "♭ 降", "b", style=1),
+         _insert("mark_dot", "· 附点", "."),
+         _insert("mark_rest", "𝄽 休止", "- ")],
+        [_insert("dur_2", "𝅗𝅥 二分", "/2 "),
+         _insert("dur_8", "♪ 八分", "/8 "),
+         _insert("dur_16", "𝅘𝅥𝅯 十六", "/16 "),
+         _insert("dur_3", "⑶ 三连", "/3 ")],
+        [_insert("mark_bar", "▌小节线", "| "),
+         _button("bpm", f"⏱ BPM {bpm}", "chord.pick_bpm", {}),
+         _button("wave", f"🔊 {WAVEFORMS[waveform]}", "chord.pick_waveform", {})],
         [_button("home", "🏠 主菜单", "chord.open", {}, style=1),
          _button("help", "❓ 记谱规则", "chord.help", {})],
     ]
@@ -261,6 +282,60 @@ def build_note_card(waveform: str = "square", bpm: int = 120) -> dict[str, Any]:
         "rows": rows,
         "one_shot": False,
         "ttl_seconds": 3600,
+    }
+
+
+def build_waveform_card(current: str = "square") -> dict[str, Any]:
+    """Pick a timbre directly instead of cycling through them.
+
+    Cycling needed up to three taps -- and three cards -- to reach the one you
+    wanted, each costing a passive reply.
+    """
+    rows = [[
+        _button(f"w_{key}", f"{'✅ ' if key == current else ''}{label}",
+                "chord.set_waveform", {"waveform": key},
+                style=1 if key == current else 0)
+        for key, label in WAVEFORMS.items()
+    ], [_button("back", "← 返回", "chord.open", {})]]
+    return {
+        "id": "chord_waveform",
+        "markdown": "\n".join([
+            "# 🔊 选择音色",
+            "",
+            "四种经典 8-bit 波形。方波最亮，正弦最柔。",
+        ]),
+        "rows": rows,
+        "one_shot": False,
+        "ttl_seconds": 1800,
+    }
+
+
+def build_bpm_card(current: int = 120) -> dict[str, Any]:
+    """Pick a tempo directly, same reasoning as the timbre picker."""
+    rows: list[list[dict]] = []
+    row: list[dict] = []
+    for value in BPM_CHOICES:
+        row.append(_button(
+            f"bpm_{value}", f"{'✅ ' if value == current else ''}{value}",
+            "chord.set_bpm", {"bpm": value},
+            style=1 if value == current else 0))
+        if len(row) == 4:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    rows.append([_button("back", "← 返回", "chord.open", {})])
+    return {
+        "id": "chord_bpm",
+        "markdown": "\n".join([
+            "# ⏱ 选择速度",
+            "",
+            f"当前 **BPM {current}**。BPM 指每分钟多少个**四分音符**，"
+            "所以每秒 4 下就是 BPM 240——但通常写成 BPM 120 弹八分音符。",
+        ]),
+        "rows": rows,
+        "one_shot": False,
+        "ttl_seconds": 1800,
     }
 
 
@@ -283,9 +358,9 @@ def build_home_card(waveform: str = "square", bpm: int = 120) -> dict[str, Any]:
             [_button("go_notes", "🎼 单音", "chord.notes", {}, style=1),
              _button("go_chord", "🎹 和弦", "chord.chords", {}, style=1),
              _button("go_drum", "🥁 鼓点", "chord.drums", {}, style=1)],
-            [_button("bpm", f"⏱ BPM {bpm}", "chord.cycle_bpm", {}),
+            [_button("bpm", f"⏱ BPM {bpm}", "chord.pick_bpm", {}),
              _button("wave", f"🔊 {WAVEFORMS.get(waveform, waveform)}",
-                     "chord.cycle_waveform", {}),
+                     "chord.pick_waveform", {}),
              _button("help", "❓ 用法", "chord.help", {})],
         ],
         "one_shot": False,
@@ -317,7 +392,7 @@ def build_drum_card(bpm: int = 120) -> dict[str, Any]:
                  style=1),
          _button("pat_disco", "🕺 迪斯科", "chord.drum_pattern",
                  {"pattern": "disco"}, style=1)],
-        [_button("bpm", f"⏱ BPM {bpm}", "chord.cycle_bpm", {}),
+        [_button("bpm", f"⏱ BPM {bpm}", "chord.pick_bpm", {}),
          _button("home", "🏠 主菜单", "chord.open", {}, style=1),
          _button("help", "❓ 记谱规则", "chord.help", {})],
     ]

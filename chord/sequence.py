@@ -246,3 +246,12 @@ def check_bars(score: Score) -> list[str]:
 def to_render_steps(score: Score, bpm: float) -> list[tuple[list[int], float]]:
     """Flatten to what ``synth.render_sequence`` consumes."""
     return [(list(step.notes), step.seconds(bpm)) for step in score.steps]
+
+
+#: Ready-made one-bar drum loops, written in the same grammar players type.
+#: Kept here rather than in the card so they can be parsed and tested.
+DRUM_PATTERNS = {
+    "basic": ("基本节奏", "K H/8 H/8 S H/8 H/8 K H/8 H/8 S H/8 H/8"),
+    "rock":  ("摇滚", "K H/8 K/8 S H/8 H/8 K H/8 K/8 S H/8 H/8"),
+    "disco": ("迪斯科", "K O/8 H/8 S O/8 H/8 K O/8 H/8 S O/8 H/8"),
+}

@@ -111,6 +111,36 @@ def midi_to_hz(midi: float) -> float:
     return A4_HZ * (2.0 ** ((midi - A4_MIDI) / 12.0))
 
 
+def signed_offset(name: str) -> int:
+    """Semitones from C, **without** wrapping into 0..11.
+
+    Cb is one semitone below C, which is the B *of the previous octave* -- so
+    it must come out as -1, not 11. Wrapping first and then adding the octave
+    put Cb4 on B4 instead of B3, and B#4 on C4 instead of C5: a semitone
+    right, an octave wrong, and silent about it.
+    """
+    text = name.strip().replace("♯", "#").replace("♭", "b")
+    if not text:
+        raise ParseError("音名为空")
+    letter = text[0].upper()
+    if letter in SOLFA:
+        letter = SOLFA[letter]
+    if letter not in NATURALS:
+        raise ParseError(f"不认识的音名：{name}")
+    value = NATURALS[letter]
+    accidentals = text[1:]
+    if "#" in accidentals and ("b" in accidentals or "B" in accidentals):
+        raise ParseError(f"升号和降号不能混用：{name}")
+    for accidental in accidentals:
+        if accidental == "#":
+            value += 1
+        elif accidental in ("b", "B"):
+            value -= 1
+        else:
+            raise ParseError(f"不认识的升降号：{accidental}")
+    return value
+
+
 def pitch_class(name: str) -> int:
     """'C#' / 'Db' -> 1. Raises ParseError on anything else."""
     text = name.strip().replace("♯", "#").replace("♭", "b")
@@ -145,7 +175,10 @@ def pitch_class(name: str) -> int:
 #: without silently guessing wrong for someone. A chord quality can never
 #: precede its root, so putting the octave in front removes the ambiguity by
 #: construction rather than by precedence.
-_OCTAVE_FIRST_RE = _re.compile(r"^([0-9])([A-Ga-g])([#b]?)$")
+#: Also accepts a *leading* accidental (``#4C``), which is what the card's
+#: ♯/♭ buttons produce: they are tapped before the note, so the text lands in
+#: front of it. Rejecting that shape would make the two buttons unusable.
+_OCTAVE_FIRST_RE = _re.compile(r"^([#b]?)([0-9])([A-Ga-g])([#b]?)$")
 
 
 def note_to_midi(text: str, default_octave: int = OCTAVE) -> int:
@@ -156,8 +189,10 @@ def note_to_midi(text: str, default_octave: int = OCTAVE) -> int:
 
     prefixed = _OCTAVE_FIRST_RE.match(raw)
     if prefixed:
-        octave_text, letter, accidental = prefixed.groups()
-        return _midi_from(letter + accidental, int(octave_text))
+        leading, octave_text, letter, trailing = prefixed.groups()
+        if leading and trailing:
+            raise ParseError(f"升降号只能写一个：{text}")
+        return _midi_from(letter + (leading or trailing), int(octave_text))
 
     digits = ""
     while raw and (raw[-1].isdigit() or (raw[-1] == "-" and digits)):
@@ -173,7 +208,9 @@ def note_to_midi(text: str, default_octave: int = OCTAVE) -> int:
 def _midi_from(name: str, octave: int) -> int:
     if not -1 <= octave <= 9:
         raise ParseError(f"八度超出范围：{octave}（应在 -1~9）")
-    midi = (octave + 1) * 12 + pitch_class(name)
+    # signed_offset, not pitch_class: an accidental that crosses the C
+    # boundary must take the octave with it (Cb4 is B3, B#4 is C5).
+    midi = (octave + 1) * 12 + signed_offset(name)
     if not 0 <= midi <= 127:
         raise ParseError(f"音高超出范围：{name}{octave}")
     return midi
