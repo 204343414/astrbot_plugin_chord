@@ -48,6 +48,16 @@ ffmpeg 只有做**视频**时才躲不掉——H.264 / AAC 是专利编码器，
 | **silk** | 装了 `graiax-silkcoder` 时（QQ 原生语音格式） | ~16 KB |
 | **wav** | 没装时自动降级 | ~100 KB |
 
+> `graiax-silkcoder` **不在 `requirements.txt` 里**，因为它只发布源码包
+> （内含 SILK SDK 的 C/C++ 源码），安装时需要现场编译，而 AstrBot 官方镜像
+> 没有编译器——写进依赖会导致**整个插件装不上**。
+>
+> 想要更小的语音，在能编译的环境里手动装：
+> ```bash
+> pip install graiax-silkcoder
+> ```
+> 装不上也完全不影响使用，只是语音大一些。
+
 官方文档 `file_type=3` 同时接受 `silk/wav/mp3/flac`，所以降级是**正规做法**而非将就。
 `graiax-silkcoder` 自带编码器，同样不需要 ffmpeg。
 
@@ -63,12 +73,21 @@ ffmpeg 只有做**视频**时才躲不掉——H.264 / AAC 是专利编码器，
 面板的整条链路（选根音 → 选和弦 → 结果）共用一个会话 `ui:chord:<群>`，
 所以每张新卡都会**撤回它替代的那一张**，不会在群里堆一叠。
 
+## 依赖
+
+**唯一的必装依赖是 `numpy`**，而且连它都不是硬性的：找不到 numpy 时会自动切换到
+纯 Python 实现（`chord/_purepy.py`），渲染慢一点点，**输出逐字节完全一致**——
+不是"另一种音色"，是同一个声音。
+
+这样插件在任何环境都装得上、都出得了声。
+
 ## 结构
 
 | 文件 | 职责 |
 | --- | --- |
 | `chord/theory.py` | 音名、和弦、音程、分解型。纯逻辑，无任何依赖 |
-| `chord/synth.py` | 波形、包络、WAV / silk 编码。只依赖 numpy |
+| `chord/synth.py` | 波形、包络、WAV / silk 编码 |
+| `chord/_purepy.py` | 没有 numpy 时的兜底实现，输出与 numpy 完全一致 |
 | `chord/cards.py` | 卡片布局，严格控制在 QQ 的 5×5 以内 |
 | `main.py` | Hub 对接：注册 Action、发牌、发语音、命令入口 |
 

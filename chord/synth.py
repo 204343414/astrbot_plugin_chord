@@ -20,9 +20,20 @@ import io
 import wave
 from dataclasses import dataclass
 
-import numpy as np
-
 from .theory import midi_to_hz
+
+try:
+    import numpy as np
+
+    HAVE_NUMPY = True
+except ImportError:  # pragma: no cover - exercised via the pure-Python path
+    # numpy is not an AstrBot dependency and its wheel can be unavailable on
+    # unusual platforms. Synthesis is simple arithmetic over a flat buffer, so
+    # a pure-Python fallback costs some speed and nothing else -- far better
+    # than a plugin that refuses to install.
+    from . import _purepy as np  # type: ignore[no-redef]
+
+    HAVE_NUMPY = False
 
 #: 32 kHz mono. Chiptune waveforms are harmonically rich, so dropping to a
 #: telephone rate makes square waves buzz; 32k is the cheapest rate that still

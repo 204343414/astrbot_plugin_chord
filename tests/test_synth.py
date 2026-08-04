@@ -217,3 +217,62 @@ def test_a_missing_silk_encoder_degrades_to_wav_instead_of_failing():
         builtins.__import__ = real_import
     assert used == "wav"
     assert data[:4] == b"RIFF"
+
+
+# --- installing without optional dependencies -------------------------------
+#
+# The plugin failed to install because requirements.txt listed
+# graiax-silkcoder, which ships only a source tarball of the SILK SDK and so
+# needs a C toolchain the AstrBot image does not have. Neither optional
+# dependency may be allowed to block installation again.
+
+def _render_in_subprocess(hide_numpy: bool) -> bytes:
+    """Render a chord in a fresh interpreter with imports blocked."""
+    import base64
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    code = f'''
+import sys, builtins, base64
+sys.path.insert(0, {str(root)!r})
+real = builtins.__import__
+def blocked(name, *a, **k):
+    if {hide_numpy} and (name == "numpy" or name.startswith("numpy.")):
+        raise ImportError("hidden")
+    if name.startswith("graiax"):
+        raise ImportError("hidden")
+    return real(name, *a, **k)
+builtins.__import__ = blocked
+from chord import synth, theory as th
+sig = synth.render_notes(list(th.parse_chord("Cmaj7").notes), 0.8, "square")
+sys.stdout.write(base64.b64encode(synth.to_wav(sig)).decode())
+'''
+    result = subprocess.run([sys.executable, "-B", "-c", code],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr[-800:]
+    return base64.b64decode(result.stdout)
+
+
+def test_requirements_only_lists_installable_wheels():
+    """graiax-silkcoder has no wheel; requiring it broke plugin installation."""
+    text = (Path(__file__).resolve().parents[1] / "requirements.txt").read_text()
+    listed = [line.strip() for line in text.splitlines()
+              if line.strip() and not line.startswith("#")]
+    assert "graiax-silkcoder" not in listed, "可选依赖不能写进 requirements"
+
+
+def test_the_plugin_renders_without_numpy():
+    """numpy is not an AstrBot dependency, so it must not be load-bearing."""
+    data = _render_in_subprocess(hide_numpy=True)
+    assert data[:4] == b"RIFF"
+    assert len(data) > 10_000
+
+
+def test_the_pure_python_path_is_sample_identical_to_numpy():
+    """A fallback that sounds different would be a second instrument.
+
+    This also pins a real bug: ndarray subclasses list, so `mixed += osc`
+    concatenated the buffers instead of summing them and produced a clip four
+    times too long -- audible, but only if something checks.
+    """
+    assert _render_in_subprocess(False) == _render_in_subprocess(True)
