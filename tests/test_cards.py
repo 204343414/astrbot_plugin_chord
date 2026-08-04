@@ -136,3 +136,67 @@ def test_parse_failures_explain_the_notation():
     handler = source[source.index("except th.ParseError as exc:"):]
     handler = handler[: handler.index("return")]
     assert "{exc}" in handler
+
+
+# --- how AstrBot actually imports this plugin -------------------------------
+
+def test_main_uses_relative_imports_only():
+    """AstrBot imports the plugin as ``data.plugins.<dir>.main``.
+
+    The plugin directory is therefore *not* on sys.path, so ``from chord
+    import ...`` raises ModuleNotFoundError at load time -- which is exactly
+    how this shipped broken once. Only relative imports can work.
+    """
+    source = (ROOT / "main.py").read_text("utf-8")
+    offenders = [
+        line.strip() for line in source.splitlines()
+        if line.startswith(("from chord", "import chord"))
+    ]
+    assert not offenders, f"必须用相对导入：{offenders}"
+    assert "from .chord import" in source
+
+
+def test_the_plugin_imports_the_way_astrbot_loads_it():
+    """End-to-end: build the real package path and __import__ it.
+
+    Checking the source text alone would not catch a submodule that still
+    imports absolutely, so this actually performs the import.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "data" / "plugins" / "astrbot_plugin_chord"
+        target.parent.mkdir(parents=True)
+        shutil.copytree(ROOT, target,
+                        ignore=shutil.ignore_patterns("__pycache__", ".git",
+                                                      ".pytest_cache"))
+        code = f'''
+import sys, types
+sys.path.insert(0, {tmp!r})
+api = types.ModuleType("astrbot.api")
+class _L:
+    def __getattr__(self, _): return lambda *a, **k: None
+api.logger = _L(); api.AstrBotConfig = dict
+ev = types.ModuleType("astrbot.api.event")
+class _Any:
+    def __getattr__(self, n): return _Any()
+    def __call__(self, *a, **k):
+        if len(a) == 1 and callable(a[0]) and not k: return a[0]
+        return lambda fn: fn
+    def __or__(self, o): return self
+ev.filter = _Any(); ev.AstrMessageEvent = object
+star = types.ModuleType("astrbot.api.star")
+star.Context = object; star.Star = object
+star.register = lambda *a, **k: (lambda cls: cls)
+root = types.ModuleType("astrbot"); root.api = api
+sys.modules.update({{"astrbot": root, "astrbot.api": api,
+                    "astrbot.api.event": ev, "astrbot.api.star": star}})
+mod = __import__("data.plugins.astrbot_plugin_chord.main", fromlist=["main"])
+assert mod.ChordPlugin
+print("ok")
+'''
+        result = subprocess.run([sys.executable, "-B", "-c", code],
+                                capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr[-900:]

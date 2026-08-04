@@ -22,8 +22,12 @@ from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
-from chord import cards, synth
-from chord import theory as th
+# Relative imports are mandatory: AstrBot imports a plugin as
+# ``data.plugins.<dir>.main`` (star_manager: path = "data.plugins." +
+# root_dir_name + "." + module_str), so "chord" is never on sys.path and an
+# absolute import fails with ModuleNotFoundError at load time.
+from .chord import cards, synth
+from .chord import theory as th
 
 PLUGIN_NAME = "astrbot_plugin_chord"
 HUB_NAME = "astrbot_plugin_qqofficial_hub"
